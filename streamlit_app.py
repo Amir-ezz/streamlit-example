@@ -1,40 +1,86 @@
-import altair as alt
-import numpy as np
-import pandas as pd
 import streamlit as st
+import cv2 as cv
+import numpy as np
+from tensorflow.keras.models import load_model
 
-"""
-# Welcome to Streamlit!
+# Load the TensorFlow model
+Model_Enhancer = load_model("path_to_your_model")
 
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:.
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
+# Preprocessing functions
+def noisy(noise_typ, image):
+    if noise_typ == "gauss":
+        row, col, ch = image.shape
+        mean = 0
+        var = 0.0001
+        sigma = var ** 0.05
+        gauss = np.random.normal(mean, sigma, (row, col, ch))
+        gauss = gauss.reshape(row, col, ch)
+        noisy = gauss + image
+        return noisy
+    elif noise_typ == "s&p":
+        row, col, ch = image.shape
+        s_vs_p = 0.5
+        amount = 1.0
+        out = np.copy(image)
+        # Salt mode
+        num_salt = np.ceil(image.size * s_vs_p)
+        coords = [np.random.randint(0, i, int(num_salt)) for i in image.shape]
+        out[coords] = 1
 
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+        # Pepper mode
+        num_pepper = np.ceil(image.size * (1.0 - s_vs_p))
+        coords = [np.random.randint(0, i, int(num_pepper)) for i in image.shape]
+        out[coords] = 0
+        return out
+    elif noise_typ == "poisson":
+        vals = len(np.unique(image))
+        vals = 2 ** np.ceil(np.log2(vals))
+        noisy = np.random.poisson(image * vals) / float(vals)
+        return noisy
+    elif noise_typ == "speckle":
+        row, col, ch = image.shape
+        gauss = np.random.randn(row, col, ch)
+        gauss = gauss.reshape(row, col, ch)
+        noisy = image + image * gauss
+        return noisy
 
-num_points = st.slider("Number of points in spiral", 1, 10000, 1100)
-num_turns = st.slider("Number of turns in spiral", 1, 300, 31)
+def ExtractTestInput(image_path):
+    img = cv.imread(image_path)
+    img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+    img_ = cv.resize(img, (500, 500))
+    hsv = cv.cvtColor(img_, cv.COLOR_BGR2HSV)
+    hsv[..., 2] = hsv[..., 2] * 0.2
+    img1 = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+    noise_img = noisy("s&p", img1)
+    noise_img = noise_img.reshape(1, 500, 500, 3)
+    return noise_img
 
-indices = np.linspace(0, 1, num_points)
-theta = 2 * np.pi * num_turns * indices
-radius = indices
+# Streamlit app
+def main():
+    st.title("Image Enhancement App")
 
-x = radius * np.cos(theta)
-y = radius * np.sin(theta)
+    # Upload image through Streamlit
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
 
-df = pd.DataFrame({
-    "x": x,
-    "y": y,
-    "idx": indices,
-    "rand": np.random.randn(num_points),
-})
+    if uploaded_file is not None:
+        st.image(uploaded_file, caption="Uploaded Image.", use_column_width=True)
 
-st.altair_chart(alt.Chart(df, height=700, width=700)
-    .mark_point(filled=True)
-    .encode(
-        x=alt.X("x", axis=None),
-        y=alt.Y("y", axis=None),
-        color=alt.Color("idx", legend=None, scale=alt.Scale()),
-        size=alt.Size("rand", legend=None, scale=alt.Scale(range=[1, 150])),
-    ))
+        # Preprocess and make prediction
+        if st.button("Enhance Image"):
+            # Preprocess the uploaded image
+            img = cv.imdecode(np.fromstring(uploaded_file.read(), np.uint8), 1)
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            img_ = cv.resize(img, (500, 500))
+            hsv = cv.cvtColor(img_, cv.COLOR_BGR2HSV)
+            hsv[..., 2] = hsv[..., 2] * 0.2
+            img1 = cv.cvtColor(hsv, cv.COLOR_HSV2BGR)
+            noise_img = noisy("s&p", img1)
+            noise_img = noise_img.reshape(1, 500, 500, 3)
+
+            # Make prediction using the model
+            prediction = Model_Enhancer.predict(noise_img)
+
+            st.image(prediction[0], caption="Enhanced Image", use_column_width=True)
+
+if __name__ == "__main__":
+    main()
