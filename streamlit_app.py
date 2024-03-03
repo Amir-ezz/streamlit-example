@@ -4,7 +4,7 @@ import numpy as np
 from tensorflow.keras.models import load_model
 
 # Load the TensorFlow model
-Model_Enhancer = load_model("path_to_your_model")
+Model_Enhancer = load_model("C:\Users\EGYPT_LAPTOP\Desktop\ai image\new\my_model k")
 
 # Preprocessing functions
 def noisy(noise_typ, image):
